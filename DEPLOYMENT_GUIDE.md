@@ -37,8 +37,14 @@ Save both keys - you'll need them for both deployments.
    ```
    VITE_WEATHER_API_KEY=your_openweathermap_key
    VITE_VAPID_PUBLIC_KEY=your_public_key
-   VITE_PUSH_SERVER_URL=https://your-railway-app.railway.app
+   VITE_PUSH_SERVER_URL=https://your-push-server-name.railway.app
    ```
+
+**Note**: Replace `your-push-server-name` with the actual name Railway gives your deployed app. For example, if Railway names your app `weatherco-push-server-production`, your URL would be:
+
+```
+VITE_PUSH_SERVER_URL=https://weatherco-push-server-production.railway.app
+```
 
 ## Step 4: Test Push Notifications
 
@@ -67,7 +73,7 @@ If Railway doesn't work, use Render:
 
 ## Health Check
 
-Visit `https://your-push-server.railway.app/health` to see:
+Visit `https://your-push-server-name.railway.app/health` to see:
 
 - Server status
 - Active subscriptions
