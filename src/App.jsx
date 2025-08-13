@@ -12,20 +12,45 @@ export default function App() {
   // Function to fetch weather from API
   const fetchWeather = async (lat, lon) => {
     try {
+      const apiKey = import.meta.env.VITE_WEATHER_API_KEY;
+
+      if (!apiKey) {
+        toast.error(
+          "Missing API key. Please check your environment variables."
+        );
+        console.error("VITE_WEATHER_API_KEY is not set");
+        return null;
+      }
+
       const response = await fetch(
-        `https://api.openweathermap.org/data/2.5/weather?lat=${lat}&lon=${lon}&appid=${
-          import.meta.env.VITE_WEATHER_API_KEY
-        }&units=metric`
+        `https://api.openweathermap.org/data/2.5/weather?lat=${lat}&lon=${lon}&appid=${apiKey}&units=metric`
       );
 
-      if (!response.ok) throw new Error("Failed to fetch weather");
+      if (!response.ok) {
+        const errorData = await response.json().catch(() => ({}));
+        if (response.status === 401) {
+          toast.error(
+            "Invalid API key. Please check your OpenWeatherMap API key."
+          );
+        } else if (response.status === 429) {
+          toast.error("API rate limit exceeded. Please try again later.");
+        } else {
+          toast.error(`Weather API error: ${response.status}`);
+        }
+        console.error("Weather API error:", response.status, errorData);
+        return null;
+      }
 
       const data = await response.json();
       setWeather(data);
       return data;
     } catch (error) {
-      toast.error("Error fetching weather");
-      console.error(error);
+      if (error.name === "TypeError" && error.message.includes("fetch")) {
+        toast.error("Network error. Please check your internet connection.");
+      } else {
+        toast.error("Error fetching weather data");
+      }
+      console.error("Weather fetch error:", error);
       return null;
     }
   };
@@ -96,7 +121,12 @@ export default function App() {
   // Update notification time preference
   const handleTimeChange = async (newTime) => {
     setNotificationTime(newTime);
-    if (isSubscribed && location.lat && location.lon) {
+    if (
+      isSubscribed &&
+      location.lat &&
+      location.lon &&
+      import.meta.env.VITE_PUSH_SERVER_URL
+    ) {
       try {
         await fetch(import.meta.env.VITE_PUSH_SERVER_URL + "/update-time", {
           method: "POST",
@@ -121,15 +151,17 @@ export default function App() {
           const { latitude, longitude } = pos.coords;
           setLocation({ lat: latitude, lon: longitude });
           fetchWeather(latitude, longitude);
-          // Register for push with rough location as metadata
-          initPushAndRegisterOnServer({ lat: latitude, lon: longitude }).then(
-            (ok) => {
-              if (ok) {
-                console.log("Push subscription registered");
-                setIsSubscribed(true);
+          // Register for push with rough location as metadata (optional)
+          if (import.meta.env.VITE_PUSH_SERVER_URL) {
+            initPushAndRegisterOnServer({ lat: latitude, lon: longitude }).then(
+              (ok) => {
+                if (ok) {
+                  console.log("Push subscription registered");
+                  setIsSubscribed(true);
+                }
               }
-            }
-          );
+            );
+          }
         },
         () => {
           // If user denies location, use Lagos
@@ -138,13 +170,15 @@ export default function App() {
           const lagosLon = 3.3792;
           setLocation({ lat: lagosLat, lon: lagosLon });
           fetchWeather(lagosLat, lagosLon);
-          initPushAndRegisterOnServer({ lat: lagosLat, lon: lagosLon }).then(
-            (ok) => {
-              if (ok) {
-                setIsSubscribed(true);
+          if (import.meta.env.VITE_PUSH_SERVER_URL) {
+            initPushAndRegisterOnServer({ lat: lagosLat, lon: lagosLon }).then(
+              (ok) => {
+                if (ok) {
+                  setIsSubscribed(true);
+                }
               }
-            }
-          );
+            );
+          }
         }
       );
     } else {
@@ -198,7 +232,9 @@ export default function App() {
               />
             </div>
             <p className="text-xs text-gray-500">
-              {isSubscribed
+              {!import.meta.env.VITE_PUSH_SERVER_URL
+                ? "🔧 Push notifications not configured"
+                : isSubscribed
                 ? "✅ You'll get daily weather updates"
                 : "Click to enable notifications"}
             </p>
