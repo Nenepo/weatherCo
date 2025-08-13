@@ -8,6 +8,8 @@ export default function App() {
   const [notificationTime, setNotificationTime] = useState("06:00");
   const [isSubscribed, setIsSubscribed] = useState(false);
   const [isCheckingWeather, setIsCheckingWeather] = useState(false);
+  const [notificationPermission, setNotificationPermission] =
+    useState("default");
 
   // Function to fetch weather from API
   const fetchWeather = async (lat, lon) => {
@@ -118,6 +120,41 @@ export default function App() {
     }
   };
 
+  // Enable notifications manually
+  const handleEnableNotifications = async () => {
+    if (!import.meta.env.VITE_PUSH_SERVER_URL) {
+      toast.error("Push server not configured");
+      return;
+    }
+
+    if (!location.lat || !location.lon) {
+      toast.error("Location not available");
+      return;
+    }
+
+    try {
+      const success = await initPushAndRegisterOnServer({
+        lat: location.lat,
+        lon: location.lon,
+      });
+
+      if (success) {
+        setIsSubscribed(true);
+        setNotificationPermission("granted");
+        toast.success(
+          "Notifications enabled! You'll get daily weather updates."
+        );
+      } else {
+        toast.error(
+          "Failed to enable notifications. Please check permissions."
+        );
+      }
+    } catch (error) {
+      toast.error("Error enabling notifications");
+      console.error(error);
+    }
+  };
+
   // Update notification time preference
   const handleTimeChange = async (newTime) => {
     setNotificationTime(newTime);
@@ -143,6 +180,48 @@ export default function App() {
     }
   };
 
+  // Test notification immediately
+  const handleTestNotification = async () => {
+    if (!import.meta.env.VITE_PUSH_SERVER_URL) {
+      toast.error("Push server not configured");
+      return;
+    }
+
+    if (!isSubscribed) {
+      toast.error("Please enable notifications first");
+      return;
+    }
+
+    try {
+      const response = await fetch(
+        import.meta.env.VITE_PUSH_SERVER_URL + "/test-notification",
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            meta: { lat: location.lat, lon: location.lon },
+          }),
+        }
+      );
+
+      if (response.ok) {
+        toast.success("Test notification sent! Check your notifications.");
+      } else {
+        toast.error("Failed to send test notification");
+      }
+    } catch (error) {
+      toast.error("Error sending test notification");
+      console.error(error);
+    }
+  };
+
+  // Check notification permission status
+  useEffect(() => {
+    if ("Notification" in window) {
+      setNotificationPermission(Notification.permission);
+    }
+  }, []);
+
   // Ask for location when component mounts
   useEffect(() => {
     if (navigator.geolocation) {
@@ -151,17 +230,8 @@ export default function App() {
           const { latitude, longitude } = pos.coords;
           setLocation({ lat: latitude, lon: longitude });
           fetchWeather(latitude, longitude);
-          // Register for push with rough location as metadata (optional)
-          if (import.meta.env.VITE_PUSH_SERVER_URL) {
-            initPushAndRegisterOnServer({ lat: latitude, lon: longitude }).then(
-              (ok) => {
-                if (ok) {
-                  console.log("Push subscription registered");
-                  setIsSubscribed(true);
-                }
-              }
-            );
-          }
+          // Don't auto-subscribe - let user choose
+          console.log("Location obtained, ready for manual notification setup");
         },
         () => {
           // If user denies location, use Lagos
@@ -170,15 +240,10 @@ export default function App() {
           const lagosLon = 3.3792;
           setLocation({ lat: lagosLat, lon: lagosLon });
           fetchWeather(lagosLat, lagosLon);
-          if (import.meta.env.VITE_PUSH_SERVER_URL) {
-            initPushAndRegisterOnServer({ lat: lagosLat, lon: lagosLon }).then(
-              (ok) => {
-                if (ok) {
-                  setIsSubscribed(true);
-                }
-              }
-            );
-          }
+          // Don't auto-subscribe - let user choose
+          console.log(
+            "Using default location, ready for manual notification setup"
+          );
         }
       );
     } else {
@@ -231,13 +296,37 @@ export default function App() {
                 className="border rounded px-2 py-1 text-sm"
               />
             </div>
-            <p className="text-xs text-gray-500">
-              {!import.meta.env.VITE_PUSH_SERVER_URL
-                ? "🔧 Push notifications not configured"
-                : isSubscribed
-                ? "✅ You'll get daily weather updates"
-                : "Click to enable notifications"}
-            </p>
+            <div className="space-y-2">
+              {!import.meta.env.VITE_PUSH_SERVER_URL ? (
+                <p className="text-xs text-gray-500">
+                  🔧 Push notifications not configured
+                </p>
+              ) : isSubscribed ? (
+                <div className="space-y-2">
+                  <p className="text-xs text-green-600">
+                    ✅ You'll get daily weather updates
+                  </p>
+                  <button
+                    onClick={handleTestNotification}
+                    className="w-full bg-purple-500 hover:bg-purple-600 text-white text-sm font-semibold py-2 px-3 rounded transition-colors"
+                  >
+                    🔔 Test Notification
+                  </button>
+                </div>
+              ) : (
+                <div className="space-y-2">
+                  <p className="text-xs text-gray-500">
+                    Get daily weather notifications
+                  </p>
+                  <button
+                    onClick={handleEnableNotifications}
+                    className="w-full bg-green-500 hover:bg-green-600 text-white text-sm font-semibold py-2 px-3 rounded transition-colors"
+                  >
+                    🔔 Enable Notifications
+                  </button>
+                </div>
+              )}
+            </div>
           </div>
         </div>
       ) : (

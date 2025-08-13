@@ -64,6 +64,44 @@ app.post("/update-time", (req, res) => {
   return res.status(404).json({ error: "Subscription not found" });
 });
 
+// Test notification endpoint
+app.post("/test-notification", async (req, res) => {
+  const { meta } = req.body || {};
+
+  try {
+    // Find subscription by location
+    let targetSubscription = null;
+    for (const [
+      endpoint,
+      { subscription, meta: subMeta },
+    ] of subscriptions.entries()) {
+      if (subMeta?.lat === meta?.lat && subMeta?.lon === meta?.lon) {
+        targetSubscription = subscription;
+        break;
+      }
+    }
+
+    if (!targetSubscription) {
+      return res.status(404).json({ error: "Subscription not found" });
+    }
+
+    // Send immediate test notification
+    const title = "🌂 Test Notification";
+    const body = "This is a test notification from WeatherCo!";
+
+    await webPush.sendNotification(
+      targetSubscription,
+      JSON.stringify({ title, body, url: "/" })
+    );
+
+    console.log("Test notification sent successfully");
+    return res.json({ ok: true });
+  } catch (error) {
+    console.error("Test notification error:", error);
+    return res.status(500).json({ error: "Failed to send test notification" });
+  }
+});
+
 // Weather fetching function
 async function fetchWeather(lat, lon) {
   const url = `https://api.openweathermap.org/data/2.5/weather?lat=${lat}&lon=${lon}&appid=${OPENWEATHERMAP_KEY}&units=metric`;
@@ -75,10 +113,14 @@ async function fetchWeather(lat, lon) {
 // Individual user notification scheduling
 function scheduleUserNotifications() {
   const now = new Date();
+  console.log(`Scheduling notifications at ${now.toISOString()}`);
 
   for (const [endpoint, { subscription, meta }] of subscriptions.entries()) {
     const preferences = userPreferences.get(endpoint);
-    if (!preferences?.time) continue;
+    if (!preferences?.time) {
+      console.log(`No time preference for ${endpoint}`);
+      continue;
+    }
 
     const [hours, minutes] = preferences.time.split(":").map(Number);
     const nextNotification = new Date();
@@ -86,11 +128,22 @@ function scheduleUserNotifications() {
 
     if (nextNotification <= now) {
       nextNotification.setDate(nextNotification.getDate() + 1);
+      console.log(
+        `Time already passed today, scheduling for tomorrow: ${nextNotification.toISOString()}`
+      );
+    } else {
+      console.log(`Scheduling for today: ${nextNotification.toISOString()}`);
     }
 
     const delay = nextNotification.getTime() - now.getTime();
+    console.log(
+      `Delay for ${endpoint}: ${delay}ms (${Math.round(
+        delay / 1000 / 60
+      )} minutes)`
+    );
 
     setTimeout(async () => {
+      console.log(`Sending scheduled notification to ${endpoint}`);
       try {
         const lat = meta?.lat ?? 6.5244;
         const lon = meta?.lon ?? 3.3792;
@@ -108,16 +161,16 @@ function scheduleUserNotifications() {
             subscription,
             JSON.stringify({ title, body, url: "/" })
           );
-          console.log(`Sent notification to ${endpoint} for ${city}`);
+          console.log(`✅ Sent notification to ${endpoint} for ${city}`);
         }
       } catch (err) {
         const status = err?.statusCode || err?.status || 0;
         if (status === 404 || status === 410) {
           subscriptions.delete(endpoint);
           userPreferences.delete(endpoint);
-          console.log(`Removed stale subscription: ${endpoint}`);
+          console.log(`❌ Removed stale subscription: ${endpoint}`);
         } else {
-          console.error("Notify error", status, err?.message);
+          console.error("❌ Notify error", status, err?.message);
         }
       }
 
