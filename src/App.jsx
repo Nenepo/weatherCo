@@ -156,13 +156,13 @@ export default function App() {
     }
   };
 
-    // Update notification time preference and immediately check weather
+  // Update notification time preference and immediately check weather
   const handleTimeChange = async (newTime) => {
     const loadingToast = toast.loading("Updating notification time...");
-    
+
     try {
       setNotificationTime(newTime);
-      
+
       // Update the server with new time if subscribed
       if (
         isSubscribed &&
@@ -180,8 +180,6 @@ export default function App() {
         });
       }
 
-   
-
       // Send browser notification about time update if allowed
       if ("Notification" in window && Notification.permission === "granted") {
         new Notification("⏰ Notification Time Updated", {
@@ -189,7 +187,7 @@ export default function App() {
           icon: "/umbrella.png", // optional: add an icon in /public
         });
       }
-         // Fetch fresh weather data and check umbrella need
+      // Fetch fresh weather data and check umbrella need
       const freshWeatherData = await fetchWeather(location.lat, location.lon);
       if (freshWeatherData) {
         checkUmbrella(freshWeatherData);
@@ -197,7 +195,6 @@ export default function App() {
 
       toast.dismiss(loadingToast);
       toast.success(`Notification time updated to ${newTime}`);
-      
     } catch (error) {
       toast.dismiss(loadingToast);
       toast.error("Failed to update notification time");
@@ -277,56 +274,101 @@ export default function App() {
   }, []);
 
   // Schedule notification at user-set time
-  useEffect(() => {
-    if (
-      !isSubscribed ||
-      notificationPermission !== "granted" ||
-      !import.meta.env.VITE_PUSH_SERVER_URL
-    )
-      return;
+ useEffect(() => {
+  console.log("Notification conditions:", {
+    isSubscribed,
+    notificationPermission,
+    pushServerUrl: import.meta.env.VITE_PUSH_SERVER_URL,
+    location: { lat: location.lat, lon: location.lon },
+    notificationTime,
+  });
 
-    // Parse notificationTime ("HH:mm")
-    const [hours, minutes] = notificationTime.split(":").map(Number);
-    const now = new Date();
-    const target = new Date(now);
-    target.setHours(hours, minutes, 0, 0);
+  if (
+    !isSubscribed ||
+    notificationPermission !== "granted" ||
+    !import.meta.env.VITE_PUSH_SERVER_URL ||
+    !location.lat ||
+    !location.lon
+  ) {
+    console.log("Notification not scheduled due to missing conditions");
+    return;
+  }
 
-    // If the target time has already passed today, schedule for tomorrow
-    if (target <= now) {
-      target.setDate(target.getDate() + 1);
-    }
+  const [hours, minutes] = notificationTime.split(":").map(Number);
+  const now = new Date();
+  const target = new Date(now);
+  target.setHours(hours, minutes, 0, 0);
 
-    const msUntilNotification = target - now;
+  if (target <= now) {
+    target.setDate(target.getDate() + 1);
+  }
 
-    const timeoutId = setTimeout(async () => {
-      try {
-        await fetch(
+  const msUntilNotification = target - now;
+
+  const timeoutId = setTimeout(async () => {
+    try {
+      const latestWeather = await fetchWeather(location.lat, location.lon);
+
+      if (latestWeather) {
+        const conditions = latestWeather.weather[0].main.toLowerCase();
+        const description = latestWeather.weather[0].description.toLowerCase();
+
+        const rainKeywords = ["rain", "drizzle", "shower", "storm", "thunder"];
+        const snowKeywords = ["snow", "sleet", "blizzard"];
+
+        const isRainy = rainKeywords.some(
+          (keyword) =>
+            conditions.includes(keyword) || description.includes(keyword)
+        );
+        const isSnowy = snowKeywords.some(
+          (keyword) =>
+            conditions.includes(keyword) || description.includes(keyword)
+        );
+
+        let message = "☀️ No umbrella needed today!";
+        if (isRainy) message = "🌂 Take your umbrella today!";
+        else if (isSnowy) message = "❄️ Bundle up! Snow expected today";
+
+        const payload = {
+          meta: { lat: location.lat, lon: location.lon },
+          message,
+        };
+        console.log("Sending notification payload:", payload);
+
+        const response = await fetch(
           import.meta.env.VITE_PUSH_SERVER_URL + "/send-notification",
           {
             method: "POST",
             headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({
-              meta: { lat: location.lat, lon: location.lon },
-            }),
+            body: JSON.stringify(payload),
           }
         );
-        console.log("Notification sent successfully");
-      } catch (error) {
-        console.error("Error sending notification:", error);
+
+        if (!response.ok) {
+          console.error("Failed to send notification:", response.status, await response.text());
+          return;
+        }
+
+        console.log("Notification sent with message:", message);
       }
-    }, msUntilNotification);
+    } catch (error) {
+      console.error("Error sending umbrella notification:", error);
+    }
+  }, msUntilNotification);
 
-    console.log("Notification scheduled for", target.toLocaleString());
+  console.log("Notification scheduled for", target.toLocaleString());
 
-    // Cleanup timeout if dependencies change
-    return () => clearTimeout(timeoutId);
-  }, [
-    notificationTime,
-    isSubscribed,
-    notificationPermission,
-    location.lat,
-    location.lon,
-  ]);
+  return () => {
+    console.log("Clearing timeout for", target.toLocaleString());
+    clearTimeout(timeoutId);
+  };
+}, [
+  notificationTime,
+  isSubscribed,
+  notificationPermission,
+  location.lat,
+  location.lon,
+]);
 
   return (
     <div className="flex flex-col items-center justify-center min-h-screen bg-gray-100 text-center p-6">
