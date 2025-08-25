@@ -180,11 +180,7 @@ export default function App() {
         });
       }
 
-      // Fetch fresh weather data and check umbrella need
-      const freshWeatherData = await fetchWeather(location.lat, location.lon);
-      if (freshWeatherData) {
-        checkUmbrella(freshWeatherData);
-      }
+   
 
       // Send browser notification about time update if allowed
       if ("Notification" in window && Notification.permission === "granted") {
@@ -192,6 +188,11 @@ export default function App() {
           body: `Daily weather alerts now set for ${newTime}`,
           icon: "/umbrella.png", // optional: add an icon in /public
         });
+      }
+         // Fetch fresh weather data and check umbrella need
+      const freshWeatherData = await fetchWeather(location.lat, location.lon);
+      if (freshWeatherData) {
+        checkUmbrella(freshWeatherData);
       }
 
       toast.dismiss(loadingToast);
