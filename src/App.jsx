@@ -1,6 +1,7 @@
 import { useState, useEffect } from "react";
 import toast from "react-hot-toast";
 import { initPushAndRegisterOnServer } from "./push.js";
+// import { send } from "vite";
 
 export default function App() {
   const [location, setLocation] = useState({ lat: null, lon: null });
@@ -155,16 +156,20 @@ export default function App() {
     }
   };
 
-  // Update notification time preference
+    // Update notification time preference and immediately check weather
   const handleTimeChange = async (newTime) => {
-    setNotificationTime(newTime);
-    if (
-      isSubscribed &&
-      location.lat &&
-      location.lon &&
-      import.meta.env.VITE_PUSH_SERVER_URL
-    ) {
-      try {
+    const loadingToast = toast.loading("Updating notification time...");
+    
+    try {
+      setNotificationTime(newTime);
+      
+      // Update the server with new time if subscribed
+      if (
+        isSubscribed &&
+        location.lat &&
+        location.lon &&
+        import.meta.env.VITE_PUSH_SERVER_URL
+      ) {
         await fetch(import.meta.env.VITE_PUSH_SERVER_URL + "/update-time", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
@@ -173,10 +178,29 @@ export default function App() {
             meta: { lat: location.lat, lon: location.lon },
           }),
         });
-        toast.success("Notification time updated!");
-      } catch (error) {
-        toast.error("Failed to update notification time");
       }
+
+      // Fetch fresh weather data and check umbrella need
+      const freshWeatherData = await fetchWeather(location.lat, location.lon);
+      if (freshWeatherData) {
+        checkUmbrella(freshWeatherData);
+      }
+
+      // Send browser notification about time update if allowed
+      if ("Notification" in window && Notification.permission === "granted") {
+        new Notification("⏰ Notification Time Updated", {
+          body: `Daily weather alerts now set for ${newTime}`,
+          icon: "/umbrella.png", // optional: add an icon in /public
+        });
+      }
+
+      toast.dismiss(loadingToast);
+      toast.success(`Notification time updated to ${newTime}`);
+      
+    } catch (error) {
+      toast.dismiss(loadingToast);
+      toast.error("Failed to update notification time");
+      console.error("Error updating notification time:", error);
     }
   };
 
@@ -250,6 +274,58 @@ export default function App() {
       toast.error("Geolocation not supported");
     }
   }, []);
+
+  // Schedule notification at user-set time
+  useEffect(() => {
+    if (
+      !isSubscribed ||
+      notificationPermission !== "granted" ||
+      !import.meta.env.VITE_PUSH_SERVER_URL
+    )
+      return;
+
+    // Parse notificationTime ("HH:mm")
+    const [hours, minutes] = notificationTime.split(":").map(Number);
+    const now = new Date();
+    const target = new Date(now);
+    target.setHours(hours, minutes, 0, 0);
+
+    // If the target time has already passed today, schedule for tomorrow
+    if (target <= now) {
+      target.setDate(target.getDate() + 1);
+    }
+
+    const msUntilNotification = target - now;
+
+    const timeoutId = setTimeout(async () => {
+      try {
+        await fetch(
+          import.meta.env.VITE_PUSH_SERVER_URL + "/send-notification",
+          {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              meta: { lat: location.lat, lon: location.lon },
+            }),
+          }
+        );
+        console.log("Notification sent successfully");
+      } catch (error) {
+        console.error("Error sending notification:", error);
+      }
+    }, msUntilNotification);
+
+    console.log("Notification scheduled for", target.toLocaleString());
+
+    // Cleanup timeout if dependencies change
+    return () => clearTimeout(timeoutId);
+  }, [
+    notificationTime,
+    isSubscribed,
+    notificationPermission,
+    location.lat,
+    location.lon,
+  ]);
 
   return (
     <div className="flex flex-col items-center justify-center min-h-screen bg-gray-100 text-center p-6">

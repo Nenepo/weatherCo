@@ -102,6 +102,52 @@ app.post("/test-notification", async (req, res) => {
   }
 });
 
+app.post("/send-notification", async (req, res) => {
+  const { meta } = req.body || {};
+
+  try {
+    // Find subscription by location
+    let targetSubscription = null;
+    for (const [
+      endpoint,
+      { subscription, meta: subMeta },
+    ] of subscriptions.entries()) {
+      if (subMeta?.lat === meta?.lat && subMeta?.lon === meta?.lon) {
+        targetSubscription = subscription;
+        break;
+      }
+    }
+
+    if (!targetSubscription) {
+      return res.status(404).json({ error: "Subscription not found" });
+    }
+
+    // Fetch weather for notification
+    const lat = meta?.lat ?? 6.5244;
+    const lon = meta?.lon ?? 3.3792;
+    const weatherData = await fetchWeather(lat, lon);
+
+    const city = weatherData?.name || "your area";
+    const temp = weatherData?.main?.temp
+      ? Math.round(weatherData.main.temp)
+      : "";
+    const desc =
+      weatherData?.weather?.[0]?.description || "Weather update";
+    const title = `Umbrella check: ${city}`;
+    const body = `${desc}, ${temp}°C. Have a great day!`;
+
+    await webPush.sendNotification(
+      targetSubscription,
+      JSON.stringify({ title, body, url: "/" })
+    );
+
+    console.log("Immediate notification sent successfully");
+    return res.json({ ok: true });
+  } catch (error) {
+    console.error("Immediate notification error:", error);
+    return res.status(500).json({ error: "Failed to send notification" });
+  }
+});
 // Weather fetching function
 async function fetchWeather(lat, lon) {
   const url = `https://api.openweathermap.org/data/2.5/weather?lat=${lat}&lon=${lon}&appid=${OPENWEATHERMAP_KEY}&units=metric`;
@@ -182,6 +228,8 @@ function scheduleUserNotifications() {
 
 // Start scheduling notifications
 scheduleUserNotifications();
+
+
 
 app.get("/health", (_req, res) =>
   res.json({
